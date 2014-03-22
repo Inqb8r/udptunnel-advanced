@@ -284,7 +284,7 @@ static void setup_udp_recv(struct relay *relay)
     struct ip_mreq mreq;  /* multicast group */
 
     mreq.imr_multiaddr = relay->udpaddr.sin_addr;
-    mreq.imr_interface.s_addr = INADDR_ANY;
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
 
     if (setsockopt(relay->udp_recv_sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
                    (void *)&mreq, sizeof(mreq)) < 0) {
