@@ -45,6 +45,8 @@ struct relay {
   int udp_recv_sock;
   int tcp_listen_sock;
   int tcp_sock;
+  char out_only;
+  char udp_bind[17];
 
   char buf[TCPBUFFERSIZE];
   char *buf_ptr, *packet_start;
@@ -65,6 +67,8 @@ static void usage(char *progname) {
           progname);
   fprintf(stderr, "     -s: Server mode.  Wait for TCP connections on the port.\n");
   fprintf(stderr, "     -c: Client mode.  Connect to the given address.\n");
+  fprintf(stderr, "     -o: UDP Interface, specify udp interface\n");
+  fprintf(stderr, "     -n: UDP Output only\n");
   fprintf(stderr, "     -r: RTP mode.  Connect/listen on ports N and N+1 for both UDP and TCP.\n");
   fprintf(stderr, "         Port numbers must be even.\n");
   fprintf(stderr, "     -v: Verbose mode.  Specify -v multiple times for increased verbosity.\n");
@@ -84,6 +88,9 @@ static void parse_args(int argc, char *argv[], struct relay **relays,
   char *tcphostname, *tcpportstr, *udphostname, *udpportstr, *udpttlstr;
   struct in_addr tcpaddr, udpaddr;
   int tcpport, udpport, udpttl;
+  char *udpbind;
+  char oout=0;
+  char udpbinds[17];
   int i;
 
   *is_server = -1;
@@ -94,7 +101,7 @@ static void parse_args(int argc, char *argv[], struct relay **relays,
   tcphostname = NULL;
   tcpportstr = NULL;
 
-  while ((c = getopt(argc, argv, "s:c:rvh")) != EOF) {
+  while ((c = getopt(argc, argv, "s:c:o:rvhn")) != EOF) {
     switch (c) {
     case 's':
       if (*is_server != -1) {
@@ -114,12 +121,18 @@ static void parse_args(int argc, char *argv[], struct relay **relays,
       *is_server = 0;
       tcphostname = optarg;
       break;
+	case 'o': 
+		udpbind = optarg;
+		break;
     case 'r':
       *relay_count = 2;
       break;
     case 'v':
       debug++;
       break;
+	case 'n':
+		oout=1;
+		break;
     case 'h':
     case '?':
     default:
@@ -152,6 +165,8 @@ static void parse_args(int argc, char *argv[], struct relay **relays,
   else {
     tcphostname = NULL;
   }
+  
+  
 
   errno = 0;
   udpport = strtol(udpportstr, NULL, 0);
@@ -170,6 +185,11 @@ static void parse_args(int argc, char *argv[], struct relay **relays,
   }
   else {
     udpttl = 1;
+  }
+  if (strlen(udpbind)>0) {
+	strncpy(udpbinds,udpbind,16);
+  } else {
+	udpbinds[0]='\0';
   }
 
   if (tcpportstr != NULL) {
@@ -217,6 +237,8 @@ static void parse_args(int argc, char *argv[], struct relay **relays,
     (*relays)[i].udpaddr.sin_port = htons(udpport + i);
     (*relays)[i].udpaddr.sin_family = AF_INET;
     (*relays)[i].udp_ttl = udpttl;
+	strcpy((*relays)[i].udp_bind,udpbinds);
+	(*relays)[i].out_only=oout;
     (*relays)[i].multicast_udp = IN_MULTICAST(htons(udpaddr.s_addr));
 
     (*relays)[i].tcpaddr.sin_addr = tcpaddr;
@@ -303,6 +325,13 @@ static void setup_udp_send(struct relay *relay)
   if ((relay->udp_send_sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
     perror("setup_udp_send: socket");
     exit(1);
+  }
+  
+  if (strlen(relay->udp_bind)>0) {
+    if (setsockopt(relay->udp_send_sock, SOL_SOCKET, SO_BINDTODEVICE,(void *)&(relay->udp_bind), sizeof(relay->udp_bind)) < 0) {
+      perror("setup_udp_send: setsockopt(SO_BINDTODEVICE)");
+      exit(1);
+    }
   }
 
   if (connect(relay->udp_send_sock, (struct sockaddr *) &(relay->udpaddr),
@@ -596,7 +625,9 @@ int main(int argc, char *argv[])
     else {
       setup_tcp_client(&relays[i]);
     }
-    setup_udp_recv(&relays[i]);
+	if (relays[i].out_only<1) {
+		setup_udp_recv(&relays[i]);
+	}
     setup_udp_send(&relays[i]);
   }
 
