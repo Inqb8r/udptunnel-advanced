@@ -45,7 +45,7 @@ struct relay {
 	int udp_recv_sock;
 	int tcp_listen_sock;
 	int tcp_sock;
-	char out_only;
+	int out_only;
 	char udp_bind[17];
 
 	char buf[TCPBUFFERSIZE];
@@ -89,7 +89,8 @@ int *relay_count, int *is_server)
 	struct in_addr tcpaddr, udpaddr;
 	int tcpport, udpport, udpttl;
 	char *udpbind;
-	char oout=0;
+	udpbind=0;
+	int oout=0;
 	char udpbinds[17];
 	int i;
 
@@ -186,7 +187,7 @@ int *relay_count, int *is_server)
 	else {
 		udpttl = 1;
 	}
-	if (strlen(udpbind)>0) {
+	if (udpbind>0) {
 		strncpy(udpbinds,udpbind,16);
 	} else {
 		udpbinds[0]='\0';
@@ -239,7 +240,7 @@ int *relay_count, int *is_server)
 		(*relays)[i].udp_ttl = udpttl;
 		strcpy((*relays)[i].udp_bind,udpbinds);
 		(*relays)[i].out_only=oout;
-		(*relays)[i].multicast_udp = IN_MULTICAST(htons(udpaddr.s_addr));
+		(*relays)[i].multicast_udp = IN_MULTICAST(htonl(udpaddr.s_addr));
 
 		(*relays)[i].tcpaddr.sin_addr = tcpaddr;
 		(*relays)[i].tcpaddr.sin_port = htons(tcpport + i);
@@ -280,12 +281,17 @@ static void setup_udp_recv(struct relay *relay)
 #endif
 
 	if (relay->multicast_udp) {
+		if (debug) {
+			fprintf(stderr, "Is an mcast input\n");
+		}
 #ifdef IP_ADD_MEMBERSHIP
 		struct ip_mreq mreq;  /* multicast group */
 
 		mreq.imr_multiaddr = relay->udpaddr.sin_addr;
 		mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-
+		if (debug) {
+			fprintf(stderr, "Binding to mcast address\n");
+		}
 		if (setsockopt(relay->udp_recv_sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
 					(void *)&mreq, sizeof(mreq)) < 0) {
 			perror("setup_udp_recv: setsockopt(IP_ADD_MEMBERSHIP)");
@@ -328,6 +334,9 @@ static void setup_udp_send(struct relay *relay)
 	}
 
 	if (strlen(relay->udp_bind)>0) {
+		if (debug) {
+			fprintf(stderr, "Binding udp output to '%s'\n",relay->udp_bind);
+		}
 		if (setsockopt(relay->udp_send_sock, SOL_SOCKET, SO_BINDTODEVICE,(void *)&(relay->udp_bind), sizeof(relay->udp_bind)) < 0) {
 			perror("setup_udp_send: setsockopt(SO_BINDTODEVICE)");
 			exit(1);
@@ -627,6 +636,10 @@ int main(int argc, char *argv[])
 		}
 		if (relays[i].out_only<1) {
 			setup_udp_recv(&relays[i]);
+		} else {
+			if (debug) {
+				fprintf(stderr, "Running in udp output only\n");
+			}
 		}
 		setup_udp_send(&relays[i]);
 	}
